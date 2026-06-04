@@ -245,19 +245,87 @@ The SVG was visually appealing but information-poor compared to the ASCII. The s
 - Run: `./cwr serve --dir examples --port 8080` then visit /svg and /ascii
 - Compare the same example (e.g. 03-rag-pipeline) in both renderers
 
-**Commit (code):** pending — will commit with this diary update
+**Commit (code):** e1ee270 / f47c59c — initial commit + diary
 
 ---
 
-## Step 4: Commit, diary, and next steps
+## Step 5: Fluent SVG builder API + per-diagram serve pages
 
-Committed the full project, wrote the diary. Next: write the detailed design/implementation doc for the intern, upload to reMarkable.
+Rewrote the SVG renderer to use a fluent builder API instead of raw string concatenation. Restructured the serve command to have one page per YAML diagram with SVG+ASCII+YAML in a 3-column grid.
+
+### Prompt Context
+
+**User prompt (verbatim):** "maybe you can use a go fluent builder API to build up the SVG instead of using strings all along, that will make it easier to decompose into a coherent diagram without having to write a lot of manual svg string format"
+
+**User prompt (verbatim):** "also, i wnt a url per yaml, with the svg / ascii / dsl side by side, not a url per output type."
+
+**Assistant interpretation:** Replace string-based SVG construction with a fluent builder API for composability. Restructure serve to have `/d/{name}` pages showing all three views side by side instead of separate `/svg` and `/ascii` gallery pages.
+
+**Inferred user intent:** Cleaner code architecture that makes SVG composition natural; better UX where you see all representations of a single diagram together.
 
 ### What I did
 
-- Created `.gitignore` to exclude binary, output files, screenshots, playwright artifacts
-- Committed with descriptive message covering all features
-- Writing this diary entry
+- Created `pkg/cwr/renderer/svg/builder.go` with fluent element types:
+  - `SVG` (root), `Rect`/`R()` (rectangles), `Line`/`L()` (lines), `Text`/`T()` (text), `Group`/`G()` (groups), `Fragment`/`F()` (invisible container)
+  - Method chaining for attributes: `.Fill("#000").Stroke("#333").FontSize(12).TextAnchor("end")`
+  - `BaseAttrs` and `TextAttrs` structs handle the attribute rendering
+- Rewrote `renderer.go` to use the builder — all `fmt.Sprintf` SVG construction replaced with fluent calls
+- Restructured serve command:
+  - `/d/{name}` — single diagram page with SVG, ASCII, YAML in CSS grid (3 equal columns)
+  - `/svg/{name}` — raw SVG output
+  - `/yaml/{name}` — raw YAML source
+  - Removed `/svg` and `/ascii` gallery pages
+  - Index page (`/`) lists all diagrams with links
+
+### Why
+
+String concatenation for SVG was error-prone (easy to miss quotes, forget closing tags, duplicate attributes). The fluent builder makes SVG construction read like the visual structure: "create a rect at (0,0), fill it white, stroke it black, then add text inside...". Per-diagram pages are better UX because you compare all representations of the same diagram without switching pages.
+
+### What worked
+
+- The builder API reads very cleanly — `R(0, 0, w, h).Fill("#FFF").Stroke("#000")` is immediately understandable
+- `Fragment` (F) is useful for grouping elements without a `<g>` wrapper, keeping the DOM clean
+- CSS grid `grid-template-columns: repeat(3, minmax(0, 1fr))` properly constrains each panel to 1/3 width
+
+### What didn't work
+
+- First attempt used `flex` with `max-width: 33%` — the YAML panel wrapped to a second row because the SVG was too wide. Switched to CSS grid which handles this correctly.
+- Had to define `winSize` type at package level because `canvasSize()` needed it but the inner type was scoped to `Render()`
+
+### What I learned
+
+- CSS grid with `minmax(0, 1fr)` is necessary (not just `1fr`) to prevent content from blowing out the grid column. Without the `minmax(0, ...)`, long content like ASCII or SVG would expand the column beyond 1/3.
+- The `Fragment` element pattern is essential — without it, every group of elements needs either a `<g>` wrapper (adds DOM nesting) or manual string joining (defeats the builder purpose).
+
+### What was tricky to build
+
+- The `BaseAttrs.renderAttrs()` method needs to handle optional attributes cleanly — some elements have `stroke-width` and some don't, so pointer types (`*float64`) are used to distinguish "not set" from "set to 0". This is a common Go pattern but verbose.
+
+### What warrants a second pair of eyes
+
+- The `TextAttrs` struct is separate from `BaseAttrs` because `<text>` uses font attributes instead of stroke/fill attributes. This split is correct but means adding a new shared attribute requires updating both structs.
+- The `escXML()` function is in `builder.go` but also used by `renderer.go` — both are in the same package so this is fine, but worth noting.
+
+### What should be done in the future
+
+- Add more SVG element types: `<circle>`, `<path>`, `<polygon>` for future diagram features
+- Add a `Class()` method to set CSS classes for styling
+- Consider a `Style()` method for inline CSS properties
+- Add per-child size labels in SVG (the ASCII shows them, SVG still doesn't for subregions)
+
+### Code review instructions
+
+- Start with `pkg/cwr/renderer/svg/builder.go` — read the element types top to bottom
+- Then `pkg/cwr/renderer/svg/renderer.go` — see how `buildWindow` and `buildRegion` compose elements
+- Run: `./cwr serve --dir examples --port 8080` then visit `/d/03-rag-pipeline`
+
+**Commit (code):** c6387df — fluent SVG builder + per-diagram grid pages
+
+---
+
+## Step 4: Commit, diary, and next steps (archived)
+
+Committed the full project, wrote the diary.
 
 ### What should be done in the future
 
