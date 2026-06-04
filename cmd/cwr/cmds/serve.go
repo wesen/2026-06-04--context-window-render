@@ -24,8 +24,8 @@ import (
 	"github.com/go-go-golems/glazed/pkg/settings"
 )
 
-// ServeCommand starts an HTTP server that serves SVG and ASCII galleries
-// and re-renders when YAML files change.
+// ServeCommand starts an HTTP server with one page per YAML diagram,
+// showing SVG, ASCII, and DSL source side by side.
 type ServeCommand struct {
 	*cmds.CommandDescription
 }
@@ -49,18 +49,18 @@ func NewServeCommand() (*ServeCommand, error) {
 
 	cmdDesc := cmds.NewCommandDescription(
 		"serve",
-		cmds.WithShort("Serve SVG and ASCII galleries with hot-reload"),
+		cmds.WithShort("Serve diagrams: one page per YAML with SVG+ASCII+DSL side by side"),
 		cmds.WithLong(`
 Start an HTTP server that renders all YAML diagrams in a directory.
-SVG and ASCII are served on separate pages. Diagrams are re-rendered
-automatically when YAML files change — just refresh the browser.
+Each diagram gets its own page with SVG, ASCII, and YAML source shown
+side by side. Diagrams are re-rendered when YAML files change —
+just refresh the browser.
 
 Routes:
-  /         — Index with links to both galleries
-  /svg      — SVG gallery
-  /ascii    — ASCII gallery
-  /svg/{name} — Single SVG diagram
-  /yaml/{name} — Raw YAML source
+  /              — Index listing all diagrams
+  /d/{name}      — Diagram page: SVG + ASCII + YAML side by side
+  /svg/{name}    — Raw SVG output
+  /yaml/{name}   — Raw YAML source
 
 Examples:
   cwr serve --dir examples --port 8080
@@ -95,20 +95,11 @@ func (c *ServeCommand) RunIntoGlazeProcessor(
 	if err := vals.DecodeSectionInto(schema.DefaultSlug, settings); err != nil {
 		return err
 	}
-
 	srv := newGalleryServer(settings.Dir, settings.Port)
 	return srv.run(ctx)
 }
 
-// --- gallery server ---
-
-type galleryServer struct {
-	dir      string
-	port     int
-	mu       sync.RWMutex
-	diagrams map[string]renderedDiagram // sorted by name
-	modTimes map[string]time.Time
-}
+// --- rendered diagram cache ---
 
 type renderedDiagram struct {
 	Name  string
@@ -117,6 +108,14 @@ type renderedDiagram struct {
 	ASCII string
 	YAML  string
 	Error string
+}
+
+type galleryServer struct {
+	dir      string
+	port     int
+	mu       sync.RWMutex
+	diagrams map[string]renderedDiagram
+	modTimes map[string]time.Time
 }
 
 func newGalleryServer(dir string, port int) *galleryServer {
@@ -130,22 +129,19 @@ func newGalleryServer(dir string, port int) *galleryServer {
 
 func (s *galleryServer) run(ctx context.Context) error {
 	s.renderAll()
-
 	go s.watchFiles(ctx)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
-	mux.HandleFunc("/svg", s.handleSVGGallery)
-	mux.HandleFunc("/ascii", s.handleASCIIGallery)
-	mux.HandleFunc("/svg/", s.handleSingleSVG)
-	mux.HandleFunc("/yaml/", s.handleSingleYAML)
+	mux.HandleFunc("/d/", s.handleDiagram)
+	mux.HandleFunc("/svg/", s.handleRawSVG)
+	mux.HandleFunc("/yaml/", s.handleRawYAML)
 
 	addr := fmt.Sprintf(":%d", s.port)
-	fmt.Printf("Context Window Render gallery:\n")
-	fmt.Printf("  http://localhost%s/       — Index\n", addr)
-	fmt.Printf("  http://localhost%s/svg     — SVG gallery\n", addr)
-	fmt.Printf("  http://localhost%s/ascii   — ASCII gallery\n", addr)
-	fmt.Printf("Watching %s for changes (refresh browser to see updates)\n", s.dir)
+	fmt.Printf("Context Window Render:\n")
+	fmt.Printf("  http://localhost%s/          — Index\n", addr)
+	fmt.Printf("  http://localhost%s/d/{name}  — Diagram (SVG+ASCII+YAML)\n", addr)
+	fmt.Printf("Watching %s for changes (refresh browser to update)\n", s.dir)
 
 	server := &http.Server{Addr: addr, Handler: mux}
 	go func() {
@@ -154,6 +150,8 @@ func (s *galleryServer) run(ctx context.Context) error {
 	}()
 	return server.ListenAndServe()
 }
+
+// --- render pipeline ---
 
 func (s *galleryServer) renderAll() {
 	entries, err := os.ReadDir(s.dir)
@@ -170,10 +168,8 @@ func (s *galleryServer) renderAll() {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
 			continue
 		}
-
 		name := strings.TrimSuffix(entry.Name(), ".yaml")
 		path := filepath.Join(s.dir, entry.Name())
-
 		info, _ := entry.Info()
 		newModTimes[path] = info.ModTime()
 
@@ -194,15 +190,13 @@ func (s *galleryServer) renderAll() {
 			continue
 		}
 
-		svgR := svg.NewRenderer(th)
-		if svgContent, err := svgR.Render(diagram); err != nil {
+		if svgContent, err := svg.NewRenderer(th).Render(diagram); err != nil {
 			rd.Error = err.Error()
 		} else {
 			rd.SVG = svgContent
 		}
 
-		asciiR := ascii.NewRenderer(th)
-		if asciiContent, err := asciiR.Render(diagram); err != nil {
+		if asciiContent, err := ascii.NewRenderer(th).Render(diagram); err != nil {
 			if rd.Error == "" {
 				rd.Error = err.Error()
 			}
@@ -222,7 +216,6 @@ func (s *galleryServer) renderAll() {
 func (s *galleryServer) watchFiles(ctx context.Context) {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -238,7 +231,6 @@ func (s *galleryServer) checkChanges() {
 	if err != nil {
 		return
 	}
-
 	changed := false
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yaml") {
@@ -257,7 +249,6 @@ func (s *galleryServer) checkChanges() {
 			break
 		}
 	}
-
 	if changed {
 		fmt.Println("YAML changed — re-rendering...")
 		s.renderAll()
@@ -268,8 +259,8 @@ func (s *galleryServer) sortedNames() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	names := make([]string, 0, len(s.diagrams))
-	for name := range s.diagrams {
-		names = append(names, name)
+	for n := range s.diagrams {
+		names = append(names, n)
 	}
 	sort.Strings(names)
 	return names
@@ -282,54 +273,43 @@ func (s *galleryServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, indexPage, s.port)
-}
-
-func (s *galleryServer) handleSVGGallery(w http.ResponseWriter, r *http.Request) {
+	names := s.sortedNames()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	names := s.sortedNames()
-
-	data := map[string]interface{}{
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	tmpl := template.Must(template.New("index").Parse(indexTemplate))
+	tmpl.Execute(w, map[string]interface{}{
 		"Names":    names,
 		"Diagrams": s.diagrams,
+	})
+}
+
+func (s *galleryServer) handleDiagram(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/d/")
+	s.mu.RLock()
+	rd, ok := s.diagrams[name]
+	s.mu.RUnlock()
+	if !ok {
+		http.Error(w, "diagram not found", 404)
+		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl := template.Must(template.New("svg").Funcs(template.FuncMap{
+	tmpl := template.Must(template.New("diagram").Funcs(template.FuncMap{
 		"safeHTML": func(s string) template.HTML { return template.HTML(s) },
-	}).Parse(svgGalleryTemplate))
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), 500)
-	}
+	}).Parse(diagramTemplate))
+	tmpl.Execute(w, map[string]interface{}{
+		"RD":    rd,
+		"Names": s.sortedNames(),
+	})
 }
 
-func (s *galleryServer) handleASCIIGallery(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	names := s.sortedNames()
-
-	data := map[string]interface{}{
-		"Names":    names,
-		"Diagrams": s.diagrams,
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl := template.Must(template.New("ascii").Parse(asciiGalleryTemplate))
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, err.Error(), 500)
-	}
-}
-
-func (s *galleryServer) handleSingleSVG(w http.ResponseWriter, r *http.Request) {
+func (s *galleryServer) handleRawSVG(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/svg/")
 	s.mu.RLock()
 	rd, ok := s.diagrams[name]
 	s.mu.RUnlock()
-
 	if !ok {
 		http.Error(w, "not found", 404)
 		return
@@ -338,12 +318,11 @@ func (s *galleryServer) handleSingleSVG(w http.ResponseWriter, r *http.Request) 
 	w.Write([]byte(rd.SVG))
 }
 
-func (s *galleryServer) handleSingleYAML(w http.ResponseWriter, r *http.Request) {
+func (s *galleryServer) handleRawYAML(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/yaml/")
 	s.mu.RLock()
 	rd, ok := s.diagrams[name]
 	s.mu.RUnlock()
-
 	if !ok {
 		http.Error(w, "not found", 404)
 		return
@@ -352,121 +331,96 @@ func (s *galleryServer) handleSingleYAML(w http.ResponseWriter, r *http.Request)
 	w.Write([]byte(rd.YAML))
 }
 
-// --- HTML templates ---
+// --- Templates ---
 
 const commonStyle = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-    background: #FFFFFF;
-    color: #000000;
-    padding: 40px;
-    line-height: 1.6;
+    background: #FFFFFF; color: #000000; padding: 24px; line-height: 1.6;
   }
-  h1 { font-size: 22px; font-weight: bold; margin-bottom: 4px; letter-spacing: -0.5px; }
-  .subtitle { font-size: 11px; color: #888888; margin-bottom: 32px; }
-  nav { margin-bottom: 32px; font-size: 12px; }
-  nav a { color: #000000; text-decoration: underline; margin-right: 16px; }
-  nav a:hover { color: #444444; }
-  nav .current { font-weight: bold; text-decoration: none; }
-  .example { margin-bottom: 60px; }
-  .example-header {
-    display: flex; align-items: baseline; gap: 12px;
-    margin-bottom: 12px; border-bottom: 1px solid #000000; padding-bottom: 8px;
+  h1 { font-size: 20px; font-weight: bold; margin-bottom: 4px; }
+  .subtitle { font-size: 11px; color: #888888; margin-bottom: 24px; }
+  nav { margin-bottom: 24px; font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+  nav a { color: #000000; text-decoration: none; }
+  nav a:hover { text-decoration: underline; }
+  nav .current { font-weight: bold; }
+  .error {
+    font-size: 12px; color: #CC0000; padding: 8px;
+    border: 1px solid #CC0000; background: #FFF0F0; margin-bottom: 16px;
   }
-  .example-name { font-size: 15px; font-weight: bold; }
-  .example-file { font-size: 11px; color: #888888; }
-  .example-error {
-    font-size: 12px; color: #CC0000; margin-bottom: 12px;
-    padding: 8px; border: 1px solid #CC0000; background: #FFF0F0;
+  .panels {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    align-items: start;
   }
-  .svg-container { border: 1px solid #000000; display: inline-block; margin-bottom: 8px; }
-  .svg-container svg { display: block; }
-  .ascii-container {
-    border: 1px solid #CCCCCC; padding: 16px;
-    font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
-    font-size: 13px; white-space: pre; overflow-x: auto; color: #000000;
-    max-width: 800px;
+  .panel { min-width: 0; overflow: hidden; }
+  .panel-label {
+    font-size: 10px; color: #888888; text-transform: uppercase;
+    letter-spacing: 1px; margin-bottom: 6px; border-bottom: 1px solid #CCCCCC; padding-bottom: 3px;
   }
-  .yaml-link {
-    font-size: 10px; color: #888888; margin-top: 4px;
+  .svg-wrap { border: 1px solid #000000; display: inline-block; max-width: 100%; overflow: hidden; }
+  .svg-wrap svg { display: block; max-width: 100%; height: auto; }
+  .ascii-wrap {
+    border: 1px solid #CCCCCC; padding: 12px;
+    font-size: 12px; white-space: pre; overflow-x: auto;
   }
-  .yaml-link a { color: #666666; }
+  .yaml-wrap {
+    border: 1px solid #CCCCCC; padding: 12px;
+    font-size: 11px; white-space: pre; overflow-x: auto; overflow-y: auto;
+    max-height: 600px; background: #F8F8F8;
+  }
+  .index-list { list-style: none; }
+  .index-list li { margin-bottom: 4px; }
+  .index-list a { color: #000000; text-decoration: none; }
+  .index-list a:hover { text-decoration: underline; }
+  .index-list .file { color: #888888; font-size: 11px; margin-left: 8px; }
 `
 
-const indexPage = `<!DOCTYPE html>
+const indexTemplate = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>Context Window Render</title>
 <style>` + commonStyle + `</style></head>
 <body>
 <h1>Context Window Render</h1>
 <div class="subtitle">YAML DSL for LLM context window diagrams</div>
-<nav>
-  <a href="/svg">SVG Gallery</a>
-  <a href="/ascii">ASCII Gallery</a>
-</nav>
-<p style="font-size:13px;max-width:600px">
-  Edit YAML files in the <code>examples/</code> directory.
-  Diagrams are re-rendered automatically when files change.
-  Refresh the browser to see updates.
-</p>
-</body></html>`
-
-const svgGalleryTemplate = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Context Window Render — SVG</title>
-<style>` + commonStyle + `</style></head>
-<body>
-<h1>Context Window Render — SVG</h1>
-<div class="subtitle">Proportional region diagrams rendered as SVG</div>
-<nav>
-  <a href="/">Index</a>
-  <span class="current">SVG</span>
-  <a href="/ascii">ASCII</a>
-</nav>
-
+<ul class="index-list">
 {{range $name := .Names}}
 {{with $rd := index $.Diagrams $name}}
-<div class="example">
-  <div class="example-header">
-    <span class="example-name">{{$rd.Name}}</span>
-    <span class="example-file">{{$rd.File}}</span>
-  </div>
-  {{if $rd.Error}}<div class="example-error">Error: {{$rd.Error}}</div>{{end}}
-  {{if $rd.SVG}}
-  <div class="svg-container">{{$rd.SVG | safeHTML}}</div>
-  {{end}}
-  <div class="yaml-link"><a href="/yaml/{{$rd.Name}}">view YAML source</a></div>
-</div>
+<li><a href="/d/{{$rd.Name}}">{{$rd.Name}}</a><span class="file">{{$rd.File}}</span>
+{{if $rd.Error}}<span style="color:#CC0000"> — error</span>{{end}}</li>
 {{end}}
 {{end}}
-
+</ul>
 </body></html>`
 
-const asciiGalleryTemplate = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Context Window Render — ASCII</title>
+const diagramTemplate = `<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>{{.RD.Name}} — Context Window Render</title>
 <style>` + commonStyle + `</style></head>
 <body>
-<h1>Context Window Render — ASCII</h1>
-<div class="subtitle">Terminal-style context window diagrams</div>
+<h1>{{.RD.Name}}</h1>
+<div class="subtitle">{{.RD.File}}</div>
 <nav>
-  <a href="/">Index</a>
-  <a href="/svg">SVG</a>
-  <span class="current">ASCII</span>
+{{range .Names}}
+<a href="/d/{{.}}">{{.}}</a>
+{{end}}
 </nav>
 
-{{range $name := .Names}}
-{{with $rd := index $.Diagrams $name}}
-<div class="example">
-  <div class="example-header">
-    <span class="example-name">{{$rd.Name}}</span>
-    <span class="example-file">{{$rd.File}}</span>
+{{if .RD.Error}}<div class="error">Error: {{.RD.Error}}</div>{{end}}
+
+<div class="panels">
+  <div class="panel">
+    <div class="panel-label">SVG</div>
+    {{if .RD.SVG}}<div class="svg-wrap">{{.RD.SVG | safeHTML}}</div>{{end}}
   </div>
-  {{if $rd.Error}}<div class="example-error">Error: {{$rd.Error}}</div>{{end}}
-  {{if $rd.ASCII}}
-  <div class="ascii-container">{{$rd.ASCII}}</div>
-  {{end}}
-  <div class="yaml-link"><a href="/yaml/{{$rd.Name}}">view YAML source</a></div>
+  <div class="panel">
+    <div class="panel-label">ASCII</div>
+    {{if .RD.ASCII}}<div class="ascii-wrap">{{.RD.ASCII}}</div>{{end}}
+  </div>
+  <div class="panel">
+    <div class="panel-label">DSL</div>
+    {{if .RD.YAML}}<div class="yaml-wrap">{{.RD.YAML}}</div>{{end}}
+  </div>
 </div>
-{{end}}
-{{end}}
 
 </body></html>`

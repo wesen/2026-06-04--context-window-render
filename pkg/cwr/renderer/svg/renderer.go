@@ -2,13 +2,14 @@ package svg
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/go-go-golems/context-window-render/pkg/cwr/dsl"
 	"github.com/go-go-golems/context-window-render/pkg/cwr/theme"
 )
 
-// Renderer produces SVG output from a Diagram.
+// Renderer produces SVG output from a Diagram using the fluent builder API.
 type Renderer struct {
 	theme *theme.Theme
 }
@@ -18,102 +19,117 @@ func NewRenderer(t *theme.Theme) *Renderer {
 	return &Renderer{theme: t}
 }
 
-// Render converts a Diagram into a complete SVG document.
+// winSize holds the rendered dimensions of a window.
+type winSize struct {
+	width  int
+	height int
+}
+
+// Render converts a Diagram into a complete SVG document string.
 func (r *Renderer) Render(d *dsl.Diagram) (string, error) {
 	windows := d.GetWindows()
-	layout := d.Layout
-	if layout == "" && len(windows) == 1 {
-		layout = "single"
-	} else if layout == "" {
-		layout = "side-by-side"
+	layout := r.layoutMode(d)
+
+	windowWidth := r.windowWidth(layout)
+
+	// Compute all window SVG subtrees and their dimensions
+	results := make([]winSize, len(windows))
+	elements := make([]Element, len(windows))
+	for i, w := range windows {
+		elem, w_, h := r.buildWindow(w, windowWidth)
+		elements[i] = elem
+		results[i] = winSize{width: w_, height: h}
 	}
 
-	windowWidth := 480
-	if layout == "side-by-side" {
-		windowWidth = 400
-	}
+	canvasW, canvasH := r.canvasSize(results, layout)
 
-	// Compute total canvas size
-	totalWidth := 0
-	if layout == "side-by-side" {
-		for _, w := range windows {
-			_, w_, _ := r.renderWindow(w, windowWidth)
-			totalWidth += w_ + r.theme.WindowGap
-		}
-		totalWidth -= r.theme.WindowGap
-	} else {
-		for _, w := range windows {
-			_, w_, _ := r.renderWindow(w, windowWidth)
-			if w_ > totalWidth {
-				totalWidth = w_
-			}
-		}
-	}
+	root := NewSVG(canvasW, canvasH).
+		ShapeRendering("crispEdges").
+		Add(
+			R(0, 0, canvasW, canvasH).Fill("#FFFFFF"),
+		)
 
-	maxHeight := 0
-	if layout == "side-by-side" {
-		for _, w := range windows {
-			_, _, h := r.renderWindow(w, windowWidth)
-			if h > maxHeight {
-				maxHeight = h
-			}
-		}
-	} else {
-		totalH := 0
-		for _, w := range windows {
-			_, _, h := r.renderWindow(w, windowWidth)
-			totalH += h + r.theme.WindowGap
-		}
-		if len(windows) > 0 {
-			maxHeight = totalH - r.theme.WindowGap
-		}
-	}
-
-	canvasW := totalWidth + 2*r.theme.CanvasPadding
-	canvasH := maxHeight + 2*r.theme.CanvasPadding
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(
-		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" shape-rendering="crispEdges">`,
-		canvasW, canvasH, canvasW, canvasH,
-	))
-	sb.WriteString("\n")
-	sb.WriteString(`<rect width="100%" height="100%" fill="#FFFFFF"/>` + "\n")
-
+	// Title
 	titleY := r.theme.CanvasPadding
 	if d.Title != "" {
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="16" font-weight="bold" fill="#000000">%s</text>`,
-			r.theme.CanvasPadding, titleY+16, r.theme.FontFamily, escXML(d.Title),
-		))
+		root.Add(
+			T(r.theme.CanvasPadding, titleY+16, d.Title).
+				FontFamily(r.theme.FontFamily).
+				FontSize(16).FontWeight("bold").Fill("#000000"),
+		)
 		titleY += 28
 	}
 
-	xOffset := r.theme.CanvasPadding
-	yOffset := titleY
-
-	for _, w := range windows {
-		svg, w_, h := r.renderWindow(w, windowWidth)
-		sb.WriteString(fmt.Sprintf(`<g transform="translate(%d,%d)">`, xOffset, yOffset))
-		sb.WriteString(svg)
-		sb.WriteString("</g>\n")
+	// Place windows
+	xOff := r.theme.CanvasPadding
+	yOff := titleY
+	for i, wr := range results {
+		g := G().Translate(xOff, yOff).Add(elements[i])
+		root.Add(g)
 
 		if layout == "side-by-side" {
-			xOffset += w_ + r.theme.WindowGap
+			xOff += wr.width + r.theme.WindowGap
 		} else {
-			yOffset += h + r.theme.WindowGap
+			yOff += wr.height + r.theme.WindowGap
 		}
 	}
 
-	sb.WriteString("</svg>")
-	return sb.String(), nil
+	return root.Render(), nil
 }
 
-// renderWindow renders a single Window and returns (svgContent, width, height).
-func (r *Renderer) renderWindow(w dsl.Window, width int) (string, int, int) {
-	th := r.theme
-	innerWidth := width
+func (r *Renderer) layoutMode(d *dsl.Diagram) string {
+	if d.Layout != "" {
+		return d.Layout
+	}
+	if len(d.GetWindows()) == 1 {
+		return "single"
+	}
+	return "side-by-side"
+}
 
+func (r *Renderer) windowWidth(layout string) int {
+	if layout == "side-by-side" {
+		return 400
+	}
+	return 480
+}
+
+func (r *Renderer) canvasSize(results []winSize, layout string) (int, int) {
+	totalWidth := 0
+	maxHeight := 0
+
+	if layout == "side-by-side" {
+		for _, wr := range results {
+			totalWidth += wr.width + r.theme.WindowGap
+		}
+		if len(results) > 0 {
+			totalWidth -= r.theme.WindowGap
+		}
+		for _, wr := range results {
+			if wr.height > maxHeight {
+				maxHeight = wr.height
+			}
+		}
+	} else {
+		for _, wr := range results {
+			if wr.width > totalWidth {
+				totalWidth = wr.width
+			}
+			maxHeight += wr.height + r.theme.WindowGap
+		}
+		if len(results) > 0 {
+			maxHeight -= r.theme.WindowGap
+		}
+	}
+
+	return totalWidth + 2*r.theme.CanvasPadding,
+		maxHeight + 2*r.theme.CanvasPadding
+}
+
+// buildWindow constructs the SVG elements for a single Window.
+// Returns (element tree, pixel width, pixel height).
+func (r *Renderer) buildWindow(w dsl.Window, width int) (Element, int, int) {
+	th := r.theme
 	displayTitle := w.Title
 	if displayTitle == "" {
 		displayTitle = w.Name
@@ -122,219 +138,191 @@ func (r *Renderer) renderWindow(w dsl.Window, width int) (string, int, int) {
 
 	const baseContentHeight = 800
 
-	contentHeight := 0
-	regionRects := make([]regionLayout, len(w.Regions))
-
+	// Layout regions: compute (y, height) for each
+	type regionLayout struct {
+		y      int
+		height int
+		region dsl.Region
+	}
+	layout := make([]regionLayout, len(w.Regions))
 	y := 0
 	for i, reg := range w.Regions {
 		proportion := float64(reg.Size) / float64(w.Size)
-		height := int(proportion * float64(baseContentHeight))
-		if height < 24 {
-			height = 24
+		h := int(proportion * float64(baseContentHeight))
+		if h < 24 {
+			h = 24
 		}
-		regionRects[i] = regionLayout{
-			x:      0,
-			y:      y,
-			width:  innerWidth,
-			height: height,
-			region: reg,
-		}
-		y += height + th.RegionGap
-		contentHeight = y
+		layout[i] = regionLayout{y: y, height: h, region: reg}
+		y += h + th.RegionGap
 	}
+	contentHeight := y
 	if len(w.Regions) > 0 {
 		contentHeight -= th.RegionGap
 	}
 
-	totalHeight := contentHeight
 	titleBarH := 0
 	if showTitleBar {
 		titleBarH = th.TitleBarHeight
-		totalHeight += titleBarH
-		for i := range regionRects {
-			regionRects[i].y += titleBarH
+		for i := range layout {
+			layout[i].y += titleBarH
 		}
 	}
+	totalHeight := contentHeight + titleBarH
 
-	var sb strings.Builder
+	// Build element tree
+	children := []Element{}
 
-	// Window outer border (drawn first, behind everything)
-	sb.WriteString(fmt.Sprintf(
-		`<rect x="0" y="0" width="%d" height="%d" fill="none" stroke="%s" stroke-width="%d"/>`,
-		innerWidth, totalHeight, th.WindowBorderColor, th.WindowBorderWidth,
-	))
-	sb.WriteString("\n")
+	// Window outer border
+	children = append(children,
+		R(0, 0, width, totalHeight).
+			Fill("#FFFFFF").
+			Stroke(th.WindowBorderColor).
+			StrokeWidth(float64(th.WindowBorderWidth)),
+	)
 
 	// Title bar
 	if showTitleBar {
-		sb.WriteString(fmt.Sprintf(
-			`<rect x="%d" y="%d" width="%d" height="%d" fill="%s"/>`,
-			th.WindowBorderWidth, th.WindowBorderWidth,
-			innerWidth-2*th.WindowBorderWidth, titleBarH-th.WindowBorderWidth,
-			th.TitleBarFill,
-		))
-		sb.WriteString("\n")
-		// Title text left-aligned
-		sb.WriteString(fmt.Sprintf(
-			`<text x="8" y="%d" font-family="%s" font-size="11" font-weight="bold" fill="#FFFFFF">%s</text>`,
-			titleBarH-7, th.FontFamily, escXML(displayTitle),
-		))
-		sb.WriteString("\n")
-		// Size right-aligned in title bar
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="9" fill="#AAAAAA" text-anchor="end">Size: %s</text>`,
-			innerWidth-8, titleBarH-7, th.FontFamily, w.Size.String(),
-		))
-		sb.WriteString("\n")
-		// Separator line below title bar
-		sb.WriteString(fmt.Sprintf(
-			`<line x1="0" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="%d"/>`,
-			titleBarH, innerWidth, titleBarH, th.WindowBorderColor, th.WindowBorderWidth,
-		))
-		sb.WriteString("\n")
+		children = append(children,
+			// Title bar fill
+			R(th.WindowBorderWidth, th.WindowBorderWidth,
+				width-2*th.WindowBorderWidth, titleBarH-th.WindowBorderWidth).
+				Fill(th.TitleBarFill),
+			// Title text (left)
+			T(8, titleBarH-7, displayTitle).
+				Fill("#FFFFFF").
+				FontFamily(th.FontFamily).FontSize(11).FontWeight("bold"),
+			// Size badge (right)
+			T(width-8, titleBarH-7, "Size: "+w.Size.String()).
+				Fill("#AAAAAA").
+				FontFamily(th.FontFamily).FontSize(9).TextAnchor("end"),
+			// Separator line below title bar
+			L(0, titleBarH, width, titleBarH).
+				Stroke(th.WindowBorderColor).
+				StrokeWidth(float64(th.WindowBorderWidth)),
+		)
 	} else {
-		// Size label top-right inside border
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="#888888" text-anchor="end">Size: %s</text>`,
-			innerWidth-8, 14, th.FontFamily, th.FontSizeTiny, w.Size.String(),
-		))
-		sb.WriteString("\n")
+		children = append(children,
+			T(width-8, 14, "Size: "+w.Size.String()).
+				Fill("#888888").
+				FontFamily(th.FontFamily).FontSize(th.FontSizeTiny).TextAnchor("end"),
+		)
 	}
 
-	// Render regions with separators
-	for i, rl := range regionRects {
-		sb.WriteString(r.renderRegion(rl, w))
-		// Separator line between regions
-		if i < len(regionRects)-1 {
+	// Regions + separators
+	for i, rl := range layout {
+		children = append(children, r.buildRegion(rl.region, rl.y, rl.height, width, w))
+		if i < len(layout)-1 {
 			sepY := rl.y + rl.height + th.RegionGap/2
-			sb.WriteString(fmt.Sprintf(
-				`<line x1="1" y1="%d" x2="%d" y2="%d" stroke="#000000" stroke-width="1"/>`,
-				sepY, innerWidth-1, sepY,
-			))
-			sb.WriteString("\n")
+			children = append(children,
+				L(1, sepY, width-1, sepY).Stroke("#000000").StrokeWidth(1),
+			)
 		}
 	}
 
-	return sb.String(), innerWidth, totalHeight
+	return F(children...), width, totalHeight
 }
 
-type regionLayout struct {
-	x, y, width, height int
-	region              dsl.Region
-}
-
-// renderRegion renders a single region (with subregions if any).
-func (r *Renderer) renderRegion(rl regionLayout, w dsl.Window) string {
+// buildRegion constructs SVG elements for a single region.
+func (r *Renderer) buildRegion(reg dsl.Region, y, height, width int, w dsl.Window) Element {
 	th := r.theme
-	cs := th.GetColor(rl.region.Color)
-	hasSubs := len(rl.region.Subregions) > 0
+	cs := th.GetColor(reg.Color)
+	hasSubs := len(reg.Subregions) > 0
 
-	var sb strings.Builder
+	children := []Element{}
 
-	// Overflow styling
-	strokeDash := ""
-	if rl.region.Overflow {
-		strokeDash = fmt.Sprintf(` stroke-dasharray="%s"`, th.OverflowDashArray)
+	// --- Region rectangle ---
+	rect := R(0, y, width, height).
+		Fill(cs.Fill).
+		Stroke(r.regionStroke(reg, cs)).
+		StrokeWidth(float64(th.RegionBorderWidth)).
+		Rx(float64(th.RegionCornerRadius))
+	if reg.Overflow {
+		rect = rect.StrokeDash(th.OverflowDashArray)
 	}
-	borderColor := cs.Border
-	if rl.region.Overflow {
-		borderColor = th.OverflowColor
+	children = append(children, rect)
+
+	// --- Region label (always visible) ---
+	children = append(children,
+		T(8, y+14, reg.Name).
+			Fill(cs.Text).
+			FontFamily(th.FontFamily).
+			FontSize(th.FontSize).
+			FontWeight("bold"),
+	)
+
+	// --- Size label ---
+	sizeText := reg.Size.String()
+	if w.ShowTokenCounts != nil && *w.ShowTokenCounts {
+		sizeText = fmt.Sprintf("%d tkn", int(reg.Size))
 	}
-
-	fillAttr := cs.Fill
-	if cs.Fill == "none" {
-		fillAttr = "none"
+	if w.ShowPercentages != nil && *w.ShowPercentages {
+		pct := float64(reg.Size) / float64(w.Size) * 100
+		sizeText += fmt.Sprintf(" (%.1f%%)", pct)
 	}
+	children = append(children,
+		T(8, y+26, sizeText).
+			Fill(cs.Subtext).
+			FontFamily(th.FontFamily).
+			FontSize(th.FontSizeSmall),
+	)
 
-	// Region rectangle
-	sb.WriteString(fmt.Sprintf(
-		`<rect x="%d" y="%d" width="%d" height="%d" fill="%s" stroke="%s" stroke-width="%d"%s rx="%d"/>`,
-		rl.x, rl.y, rl.width, rl.height, fillAttr, borderColor, th.RegionBorderWidth, strokeDash, th.RegionCornerRadius,
-	))
-	sb.WriteString("\n")
-
-	// ALWAYS show the region label (name + size), even with subregions
-	{
-		labelY := rl.y + 14
-		label := rl.region.Name
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s" font-weight="bold">%s</text>`,
-			rl.x+8, labelY, th.FontFamily, th.FontSize, cs.Text, escXML(label),
-		))
-		sb.WriteString("\n")
-
-		// Size line (always visible)
-		sizeText := rl.region.Size.String()
-		if w.ShowTokenCounts != nil && *w.ShowTokenCounts {
-			sizeText = fmt.Sprintf("%d tkn", int(rl.region.Size))
-		}
-		if w.ShowPercentages != nil && *w.ShowPercentages {
-			pct := float64(rl.region.Size) / float64(w.Size) * 100
-			sizeText += fmt.Sprintf(" (%.1f%%)", pct)
-		}
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s">%s</text>`,
-			rl.x+8, labelY+12, th.FontFamily, th.FontSizeSmall, cs.Subtext, sizeText,
-		))
-		sb.WriteString("\n")
-
-		// Note (right-aligned)
-		if rl.region.Note != "" {
-			sb.WriteString(fmt.Sprintf(
-				`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s" text-anchor="end">%s</text>`,
-				rl.x+rl.width-8, rl.y+14, th.FontFamily, th.FontSizeTiny, th.NoteColor, escXML(rl.region.Note),
-			))
-			sb.WriteString("\n")
-		}
+	// --- Note (right-aligned) ---
+	if reg.Note != "" {
+		children = append(children,
+			T(width-8, y+14, reg.Note).
+				Fill(th.NoteColor).
+				FontFamily(th.FontFamily).
+				FontSize(th.FontSizeTiny).
+				TextAnchor("end"),
+		)
 	}
 
-	// Proportion fill bar (horizontal, below the text)
-	if rl.height >= 38 {
-		barY := rl.y + 30
-		barHeight := 4
+	// --- Proportion fill bar ---
+	if height >= 38 {
+		barY := y + 30
+		barH := 4
 		if hasSubs {
-			barY = rl.y + 30
-			barHeight = 3
+			barH = 3
 		}
-		proportion := float64(rl.region.Size) / float64(w.Size)
-		barWidth := int(proportion * float64(rl.width-16))
-		if barWidth < 2 {
-			barWidth = 2
+		proportion := float64(reg.Size) / float64(w.Size)
+		barW := int(proportion * float64(width-16))
+		if barW < 2 {
+			barW = 2
 		}
 		barColor := cs.Text
 		if cs.Fill == "none" {
 			barColor = "#CCCCCC"
 		}
-		sb.WriteString(fmt.Sprintf(
-			`<rect x="%d" y="%d" width="%d" height="%d" fill="%s" opacity="0.3"/>`,
-			rl.x+8, barY, barWidth, barHeight, barColor,
-		))
-		sb.WriteString("\n")
+		children = append(children,
+			R(8, barY, barW, barH).
+				Fill(barColor).
+				Opacity(0.3),
+		)
 	}
 
-	// Subregions
+	// --- Subregions ---
 	if hasSubs {
 		subTotal := dsl.Size(0)
-		for _, sr := range rl.region.Subregions {
+		for _, sr := range reg.Subregions {
 			subTotal += sr.Size
 		}
-		// Subregions start after the parent label area
-		subStartY := rl.y + 38
-		subAreaHeight := rl.height - 38
+		subStartY := y + 38
+		subAreaHeight := height - 38
 		if subAreaHeight < 20 {
-			subAreaHeight = rl.height - 28
-			subStartY = rl.y + 28
+			subStartY = y + 28
+			subAreaHeight = height - 28
 		}
-		remainingHeight := subAreaHeight
+		remaining := subAreaHeight
 		subY := subStartY
+		indent := 12
 
-		for i, sr := range rl.region.Subregions {
-			proportion := float64(sr.Size) / float64(subTotal)
-			subHeight := int(proportion * float64(subAreaHeight))
-			if i == len(rl.region.Subregions)-1 {
-				subHeight = remainingHeight
+		for i, sr := range reg.Subregions {
+			prop := float64(sr.Size) / float64(subTotal)
+			subH := int(prop * float64(subAreaHeight))
+			if i == len(reg.Subregions)-1 {
+				subH = remaining
 			}
-			remainingHeight -= subHeight
+			remaining -= subH
 
 			scs := th.GetColor(sr.Color)
 			subFill := scs.Fill
@@ -342,64 +330,78 @@ func (r *Renderer) renderRegion(rl regionLayout, w dsl.Window) string {
 				subFill = "none"
 			}
 
-			// Subregion rectangle with left indent (tree-like)
-			indent := 12
-			sb.WriteString(fmt.Sprintf(
-				`<rect x="%d" y="%d" width="%d" height="%d" fill="%s" stroke="%s" stroke-width="0.5" rx="0"/>`,
-				rl.x+indent, subY, rl.width-2*indent, subHeight, subFill, scs.Border,
-			))
-			sb.WriteString("\n")
+			// Subregion rectangle
+			children = append(children,
+				R(indent, subY, width-2*indent, subH).
+					Fill(subFill).
+					Stroke(scs.Border).
+					StrokeWidth(0.5),
+			)
 
-			// Tree connector line (vertical)
-			if subHeight >= 8 {
-				sb.WriteString(fmt.Sprintf(
-					`<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="0.5"/>`,
-					rl.x+6, subY+2, rl.x+6, subY+subHeight-2, scs.Border,
-				))
-				sb.WriteString("\n")
+			// Tree connector
+			if subH >= 8 {
+				children = append(children,
+					L(6, subY+2, 6, subY+subH-2).
+						Stroke(scs.Border).StrokeWidth(0.5),
+				)
 			}
 
 			// Subregion label
-			if subHeight >= 14 {
-				labelY := subY + 11
-				sb.WriteString(fmt.Sprintf(
-					`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s">%s</text>`,
-					rl.x+indent+6, labelY, th.FontFamily, th.FontSizeTiny, scs.Text, escXML(sr.Name),
-				))
-				sb.WriteString("\n")
+			if subH >= 14 {
+				children = append(children,
+					T(indent+6, subY+11, sr.Name).
+						Fill(scs.Text).
+						FontFamily(th.FontFamily).
+						FontSize(th.FontSizeTiny),
+				)
 			}
 
 			// Subregion size
-			if subHeight >= 22 {
-				sizeY := subY + 21
-				sb.WriteString(fmt.Sprintf(
-					`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s">%s</text>`,
-					rl.x+indent+6, sizeY, th.FontFamily, th.FontSizeTiny-1, scs.Subtext, sr.Size.String(),
-				))
-				sb.WriteString("\n")
+			if subH >= 22 {
+				children = append(children,
+					T(indent+6, subY+21, sr.Size.String()).
+						Fill(scs.Subtext).
+						FontFamily(th.FontFamily).
+						FontSize(th.FontSizeTiny-1),
+				)
 			}
 
-			subY += subHeight + th.SubregionGap
+			subY += subH + th.SubregionGap
 		}
 	}
 
-	// Warning (bottom-right of region)
-	if rl.region.Warning != "" && rl.height >= 28 {
-		sb.WriteString(fmt.Sprintf(
-			`<text x="%d" y="%d" font-family="%s" font-size="%g" fill="%s" text-anchor="end" font-weight="bold">%s %s</text>`,
-			rl.x+rl.width-8, rl.y+rl.height-6, th.FontFamily, th.FontSizeTiny, th.WarningColor, th.WarningSymbol, escXML(rl.region.Warning),
-		))
-		sb.WriteString("\n")
+	// --- Warning ---
+	if reg.Warning != "" && height >= 28 {
+		children = append(children,
+			T(width-8, y+height-6, th.WarningSymbol+" "+reg.Warning).
+				Fill(th.WarningColor).
+				FontFamily(th.FontFamily).
+				FontSize(th.FontSizeTiny).
+				TextAnchor("end").
+				FontWeight("bold"),
+		)
 	}
 
-	return sb.String()
+	return F(children...)
 }
 
-// escXML escapes special XML characters.
-func escXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, `"`, "&quot;")
-	return s
+func (r *Renderer) regionStroke(reg dsl.Region, cs theme.ColorSet) string {
+	if reg.Overflow {
+		return r.theme.OverflowColor
+	}
+	return cs.Border
 }
+
+// sortedNames is a helper for the serve command.
+func sortedNames(m map[string]struct{}) []string {
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Suppress unused import
+var _ = fmt.Sprintf
+var _ = strings.ReplaceAll

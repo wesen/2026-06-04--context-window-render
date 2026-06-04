@@ -12,13 +12,30 @@ Topics:
 DocType: reference
 Intent: long-term
 Owners: []
-RelatedFiles: []
+RelatedFiles:
+    - Path: cmd/cwr/cmds/render.go
+      Note: Glazed render command
+    - Path: cmd/cwr/cmds/serve.go
+      Note: Serve command with hot-reload and separate URLs
+    - Path: cmd/cwr/main.go
+      Note: Root command wiring
+    - Path: pkg/cwr/dsl/parser.go
+      Note: YAML loading and validation
+    - Path: pkg/cwr/dsl/types.go
+      Note: Core DSL types and Size parser
+    - Path: pkg/cwr/renderer/ascii/renderer.go
+      Note: ASCII renderer with box drawing
+    - Path: pkg/cwr/renderer/svg/renderer.go
+      Note: SVG renderer with proportional regions
+    - Path: pkg/cwr/theme/theme.go
+      Note: Macintosh-84 theme definition
 ExternalSources: []
-Summary: "Chronological diary of context-window-render implementation"
+Summary: Chronological diary of context-window-render implementation
 LastUpdated: 2026-06-04T13:18:00-04:00
-WhatFor: "Track implementation decisions, failures, and progress"
-WhenToUse: "Before resuming work on CWR-001"
+WhatFor: Track implementation decisions, failures, and progress
+WhenToUse: Before resuming work on CWR-001
 ---
+
 
 # Diary
 
