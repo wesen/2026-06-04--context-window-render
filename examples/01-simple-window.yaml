@@ -1,0 +1,12 @@
+# Example 1: Simple context window
+# A single context window with system prompt and user message
+
+window:
+  size: 128k
+  regions:
+    - name: System Prompt
+      size: 4k
+      color: accent
+    - name: User Message
+      size: 12k
+      color: primary

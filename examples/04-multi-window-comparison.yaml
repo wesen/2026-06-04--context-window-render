@@ -1,0 +1,41 @@
+# Example 4: Multi-window comparison
+# Compare context windows across different models
+
+windows:
+  - name: GPT-4
+    size: 128k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: Conversation
+        size: 64k
+        color: primary
+      - name: Available
+        size: 60k
+        color: empty
+  - name: Claude 3
+    size: 200k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: Conversation
+        size: 64k
+        color: primary
+      - name: Available
+        size: 132k
+        color: empty
+  - name: Llama 3
+    size: 8k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: Conversation
+        size: 4k
+        color: primary
+        overflow: true
+      - name: Available
+        size: 0k
+        color: empty

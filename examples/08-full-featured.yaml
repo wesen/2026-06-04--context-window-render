@@ -1,0 +1,77 @@
+# Example 8: Full-featured complex diagram
+# Every DSL feature demonstrated
+
+layout: side-by-side
+title: "Full Pipeline Comparison"
+windows:
+  - name: "ReAct Agent"
+    size: 200k
+    show_percentages: true
+    regions:
+      - name: System Prompt
+        size: 4096
+        color: accent
+        icon: "⚙"
+        note: "v2.3 — added tool-use instructions"
+      - name: Tool Definitions
+        size: 8192
+        color: tool
+        icon: "🔧"
+        subregions:
+          - name: "web_search"
+            size: 2048
+            color: tool-light
+          - name: "code_exec"
+            size: 2048
+            color: tool-light
+          - name: "file_ops"
+            size: 4096
+            color: tool-light
+      - name: "Cycle 1"
+        size: 30000
+        color: cycle
+        subregions:
+          - name: "Thought"
+            size: 2000
+            color: think
+          - name: "Action: web_search"
+            size: 1000
+            color: act
+          - name: "Observation"
+            size: 27000
+            color: observe
+            warning: "Large search result"
+      - name: "Cycle 2"
+        size: 20000
+        color: cycle
+        subregions:
+          - name: "Thought"
+            size: 3000
+            color: think
+          - name: "Action: code_exec"
+            size: 1000
+            color: act
+          - name: "Observation"
+            size: 16000
+            color: observe
+      - name: Few-shot
+        size: 4096
+        color: knowledge
+      - name: Available
+        size: 133708
+        color: empty
+  - name: "Simple Chat"
+    size: 128k
+    regions:
+      - name: System
+        size: 2048
+        color: accent
+      - name: History
+        size: 32000
+        color: primary
+      - name: User
+        size: 512
+        color: highlight
+      - name: Available
+        size: 93504
+        color: empty

@@ -1,0 +1,26 @@
+# Example 2: Multi-turn conversation
+# Shows system prompt, multiple turns of conversation, and remaining context
+
+window:
+  size: 128k
+  title: "Multi-turn Chat"
+  regions:
+    - name: System Prompt
+      size: 4k
+      color: accent
+      icon: "⚙"
+    - name: Turn 1 — User
+      size: 2k
+      color: primary
+    - name: Turn 1 — Assistant
+      size: 3k
+      color: secondary
+    - name: Turn 2 — User
+      size: 4k
+      color: primary
+    - name: Turn 2 — Assistant
+      size: 6k
+      color: secondary
+    - name: Available
+      size: 109k
+      color: empty

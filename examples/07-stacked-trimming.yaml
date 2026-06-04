@@ -1,0 +1,52 @@
+# Example 7: Stacked windows (conversation history trimming)
+# Shows how context is trimmed as conversation grows
+
+layout: stacked
+windows:
+  - name: "Turn 1"
+    size: 128k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: User
+        size: 2k
+        color: primary
+      - name: Assistant
+        size: 3k
+        color: secondary
+      - name: Available
+        size: 119k
+        color: empty
+  - name: "Turn 5"
+    size: 128k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: History
+        size: 60k
+        color: primary
+      - name: User
+        size: 2k
+        color: primary
+      - name: Available
+        size: 62k
+        color: empty
+  - name: "Turn 10"
+    size: 128k
+    regions:
+      - name: System
+        size: 4k
+        color: accent
+      - name: History (trimmed)
+        size: 100k
+        color: primary
+        overflow: true
+      - name: User
+        size: 2k
+        color: primary
+      - name: Available
+        size: 22k
+        color: empty
+        warning: "Low capacity"

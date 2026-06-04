@@ -1,0 +1,39 @@
+# Example 3: RAG pipeline context window
+# Shows a typical RAG setup with retrieved context, tools, and conversation
+
+window:
+  size: 128k
+  title: "RAG Pipeline"
+  regions:
+    - name: System Prompt
+      size: 2k
+      color: accent
+      icon: "⚙"
+    - name: Tool Definitions
+      size: 6k
+      color: tool
+      icon: "🔧"
+    - name: Retrieved Documents
+      size: 40k
+      color: knowledge
+      icon: "📚"
+      subregions:
+        - name: "Doc 1: API Reference"
+          size: 15k
+          color: knowledge-light
+        - name: "Doc 2: User Guide"
+          size: 12k
+          color: knowledge-light
+        - name: "Doc 3: Changelog"
+          size: 13k
+          color: knowledge-light
+    - name: Conversation History
+      size: 20k
+      color: primary
+    - name: User Query
+      size: 1k
+      color: highlight
+      icon: "▶"
+    - name: Available
+      size: 59k
+      color: empty

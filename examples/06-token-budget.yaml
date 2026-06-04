@@ -1,0 +1,39 @@
+# Example 6: Fine-grained token budget
+# Shows a detailed token budget with percentages and warnings
+
+window:
+  size: 128k
+  title: "Token Budget Analysis"
+  show_percentages: true
+  show_token_counts: true
+  regions:
+    - name: System Prompt
+      size: 2048
+      color: accent
+      icon: "⚙"
+    - name: Few-shot Examples
+      size: 8192
+      color: knowledge
+      icon: "📋"
+    - name: Retrieved Context
+      size: 65536
+      color: knowledge
+      icon: "📚"
+      warning: "Near capacity"
+    - name: Conversation (8 turns)
+      size: 32768
+      color: primary
+    - name: Working Scratch
+      size: 4096
+      color: tool
+    - name: User Query
+      size: 512
+      color: highlight
+      icon: "▶"
+    - name: Generation Budget
+      size: 16384
+      color: secondary
+      icon: "✏"
+    - name: Available
+      size: 1536
+      color: empty

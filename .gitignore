@@ -1,0 +1,8 @@
+cwr
+*.png
+output/
+.playwright-mcp/
+gallery-*.png
+svg-gallery-*.png
+ascii-gallery-*.png
+build-gallery.py

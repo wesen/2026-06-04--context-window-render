@@ -1,0 +1,70 @@
+# Example 5: Agentic loop with tool use
+# Shows an agent that loops through think→act→observe cycles
+
+window:
+  size: 128k
+  title: "Agentic Loop"
+  regions:
+    - name: System Prompt
+      size: 3k
+      color: accent
+      icon: "⚙"
+    - name: Tool Definitions
+      size: 8k
+      color: tool
+      icon: "🔧"
+      subregions:
+        - name: "shell"
+          size: 2k
+          color: tool-light
+        - name: "read_file"
+          size: 1k
+          color: tool-light
+        - name: "write_file"
+          size: 1k
+          color: tool-light
+        - name: "search"
+          size: 4k
+          color: tool-light
+    - name: "Cycle 1"
+      size: 18k
+      color: cycle
+      subregions:
+        - name: "Think"
+          size: 2k
+          color: think
+        - name: "Act: shell(ls -la)"
+          size: 1k
+          color: act
+        - name: "Observe"
+          size: 15k
+          color: observe
+    - name: "Cycle 2"
+      size: 20k
+      color: cycle
+      subregions:
+        - name: "Think"
+          size: 3k
+          color: think
+        - name: "Act: read_file(main.go)"
+          size: 1k
+          color: act
+        - name: "Observe"
+          size: 16k
+          color: observe
+    - name: "Cycle 3"
+      size: 15k
+      color: cycle
+      subregions:
+        - name: "Think"
+          size: 2k
+          color: think
+        - name: "Act: write_file(patch.go)"
+          size: 1k
+          color: act
+        - name: "Observe"
+          size: 12k
+          color: observe
+    - name: Available
+      size: 64k
+      color: empty
