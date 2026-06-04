@@ -14,9 +14,15 @@ Intent: long-term
 Owners: []
 RelatedFiles:
     - Path: cmd/cwr/cmds/render.go
-      Note: Glazed render command
+      Note: |-
+        Glazed render command
+        Render command --style flag for boxed and Swiss variants
     - Path: cmd/cwr/cmds/serve.go
-      Note: Serve command with hot-reload and separate URLs
+      Note: |-
+        Serve command with hot-reload and separate URLs
+        Per-diagram serve page now shows boxed plus Swiss variants
+    - Path: cmd/cwr/cmds/svg_style.go
+      Note: SVG style selection helper
     - Path: cmd/cwr/main.go
       Note: Root command wiring
     - Path: pkg/cwr/dsl/parser.go
@@ -25,8 +31,12 @@ RelatedFiles:
       Note: Core DSL types and Size parser
     - Path: pkg/cwr/renderer/ascii/renderer.go
       Note: ASCII renderer with box drawing
+    - Path: pkg/cwr/renderer/svg/builder.go
+      Note: Fluent SVG builder cleaned and used by Swiss renderer
     - Path: pkg/cwr/renderer/svg/renderer.go
       Note: SVG renderer with proportional regions
+    - Path: pkg/cwr/renderer/svg/swiss.go
+      Note: Swiss typography SVG renderer and allocation line (commit 47d903d)
     - Path: pkg/cwr/theme/theme.go
       Note: Macintosh-84 theme definition
 ExternalSources: []
@@ -35,6 +45,7 @@ LastUpdated: 2026-06-04T13:18:00-04:00
 WhatFor: Track implementation decisions, failures, and progress
 WhenToUse: Before resuming work on CWR-001
 ---
+
 
 
 # Diary
