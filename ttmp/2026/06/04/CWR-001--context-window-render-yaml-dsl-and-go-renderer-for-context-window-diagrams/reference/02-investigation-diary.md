@@ -334,3 +334,115 @@ Committed the full project, wrote the diary.
 - Upload final docs to reMarkable
 - Improve SVG renderer to add per-child size labels
 - Consider adding a global legend/color key to the SVG output
+
+---
+
+## Step 6: Swiss Typography Renderer and Compact Allocation Line
+
+Added a second SVG visualization mode that deliberately avoids boxes and borders. This mode uses Swiss typography principles: strong alignment, generous whitespace, a small set of text styles, semantic color, and indentation for hierarchy.
+
+The result is a table-like diagram where the context window is represented as aligned text rows plus a very compact horizontal allocation line. The line acts like a thick, low-profile bar chart: each top-level region contributes a colored segment proportional to its token size.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Commit in case you haven't.
+
+Create a second SVG type of visualization that is more like swiss typography: text table, aligned, no boxes and borders, text color to represent the different types, and indentation for the internal blocks / data. 
+
+Chose a nice color palette up front and make a couple of variations.
+
+Also, since this code was written by your little brother, feel free to review and assess and improve and clear up unclear code."
+
+**User prompt (verbatim):** "You can now also view images with the read tool for immediate feedback."
+
+**User prompt (verbatim):** "continue keeping a diary and committing at appropriate intervals"
+
+**User prompt (verbatim):** "minimize the font styles. chose 2-3 size / weights, convey meaning through color"
+
+**User prompt (verbatim):** "make a little \"line bar chart\" horizontal at the bottom, pretty short in height (more like a really thick line than a bar), so we can visualize the relative sizes"
+
+**Assistant interpretation:** Add a non-boxed Swiss table renderer with palettes and clean typography, use image reads for immediate visual feedback, keep diary/commits, reduce typography to a tiny scale, and add a compact proportional allocation line.
+
+**Inferred user intent:** The boxed Macintosh diagram is useful, but the project also needs a more publication/design-forward view that is less diagrammatic and more like an information-design table. The implementation should also be cleaner and easier to maintain.
+
+### What I did
+
+- Added `pkg/cwr/renderer/svg/swiss.go`:
+  - `SwissRenderer` renders a sparse table layout with aligned columns: region, tokens, percentage, type.
+  - Parent regions and subregions share the same row system; subregions are conveyed by indentation.
+  - Meaning is carried primarily by semantic text color rather than boxes, borders, or font weight.
+- Added three palettes:
+  - `swiss` — warm off-white with restrained Swiss red, blue, green, ochre.
+  - `swiss-cool` — cooler blue/teal palette.
+  - `swiss-warm` — warmer cream/purple/green/orange palette.
+- Added `cmd/cwr/cmds/svg_style.go` so `render` can select:
+  - `--style boxed`
+  - `--style swiss`
+  - `--style swiss-cool`
+  - `--style swiss-warm`
+- Updated `serve` pages to show boxed SVG plus all Swiss variants for each YAML file.
+- Fixed `.gitignore`: changed `cwr` to `/cwr` so Go source paths under `pkg/cwr/...` are not accidentally ignored.
+- Cleaned the SVG builder by removing unused helper functions.
+- Simplified Swiss typography to three sizes and two weights:
+  - Title: 22px / 700.
+  - Body: 13px / 400.
+  - Meta/header/type labels: 10px / 400.
+- Added the compact horizontal allocation line below each window:
+  - It is 8px high.
+  - Each top-level region contributes one segment.
+  - Segment widths are proportional to region size / window size.
+  - Segment colors use the same semantic palette colors as the table text.
+
+### Why
+
+The first SVG renderer is structural and box-oriented. The Swiss renderer gives a complementary representation for reports and presentations: readable, calm, aligned, and less visually heavy. It also provides a better place for exact counts and percentages than a stacked block diagram.
+
+### What worked
+
+- The `read` tool can display rendered PNGs directly, which made visual feedback much faster than routing everything through a separate vision call.
+- The Swiss table became noticeably cleaner after removing parent-row bolding. Hierarchy still reads because indentation and color carry the meaning.
+- The compact allocation line adds the missing proportional overview without breaking the no-boxes/no-borders design constraint.
+
+### What didn't work
+
+- First preview accidentally used the previously built `./cwr` binary, so the PNG still showed old font weights and no allocation line. Rebuilt with `go build -o cwr ./cmd/cwr` and regenerated the image.
+- The line was initially perceived as absent because the preview was stale, not because the line code failed.
+- `.gitignore` accidentally ignored new files under `pkg/cwr/...` because the pattern `cwr` matches path components, not only the root binary. Fixed by changing it to `/cwr`.
+
+### What I learned
+
+- For typography-driven diagrams, font variation becomes visual noise quickly. A Swiss table works better with a tight typographic scale and semantic color.
+- A short, thick line chart is a good compromise: it communicates proportions while preserving the table's calm layout.
+- Always check `git status --ignored` when new files do not appear in `git status --short --untracked-files=all`.
+
+### What was tricky to build
+
+- The line chart needs to preserve total width despite integer rounding. The implementation gives the last segment all remaining width, so the line always exactly fills its intended length.
+- Tiny non-zero regions would disappear if their computed width rounded to zero. The renderer gives any non-zero top-level region at least one pixel.
+
+### What warrants a second pair of eyes
+
+- The Swiss renderer currently draws the allocation line for top-level regions only. That is probably right for readability, but a reviewer should decide whether nested segments should be optionally shown.
+- The palette names and color choices are intentionally opinionated; design review should confirm they feel restrained enough.
+- The serve page now shows several SVG variants; layout may need responsive tuning for narrower browser widths.
+
+### What should be done in the future
+
+- Add labels or hover titles to line chart segments.
+- Add CLI docs/help text showing the Swiss styles.
+- Add screenshot-based regression examples once visual direction stabilizes.
+- Consider theme configuration in YAML or an external theme file.
+
+### Code review instructions
+
+- Start with `pkg/cwr/renderer/svg/swiss.go`:
+  - `SwissPalettes()` for palette choices.
+  - `Render()` for table layout.
+  - `lineChart()` for compact proportional allocation.
+- Check CLI selection in `cmd/cwr/cmds/svg_style.go` and `cmd/cwr/cmds/render.go`.
+- Run:
+  - `go test ./... -count=1`
+  - `./cwr render --file examples/03-rag-pipeline.yaml --format svg --style swiss --out output/03-rag-swiss.svg`
+  - `./cwr serve --dir examples --port 8080` and open `/d/03-rag-pipeline`.
+
+**Commit (code):** 47d903d — "feat: add Swiss typography SVG renderer with compact allocation line"
