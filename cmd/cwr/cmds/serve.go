@@ -101,13 +101,20 @@ func (c *ServeCommand) RunIntoGlazeProcessor(
 
 // --- rendered diagram cache ---
 
-type renderedDiagram struct {
+type svgVariant struct {
 	Name  string
-	File  string
+	Label string
 	SVG   string
-	ASCII string
-	YAML  string
-	Error string
+}
+
+type renderedDiagram struct {
+	Name          string
+	File          string
+	SVG           string
+	SwissVariants []svgVariant
+	ASCII         string
+	YAML          string
+	Error         string
 }
 
 type galleryServer struct {
@@ -194,6 +201,22 @@ func (s *galleryServer) renderAll() {
 			rd.Error = err.Error()
 		} else {
 			rd.SVG = svgContent
+		}
+
+		for _, variant := range []svgVariant{
+			{Name: "swiss", Label: "Swiss / Classic"},
+			{Name: "swiss-cool", Label: "Swiss / Cool"},
+			{Name: "swiss-warm", Label: "Swiss / Warm"},
+		} {
+			content, err := svg.NewSwissRenderer(th, variant.Name).Render(diagram)
+			if err != nil {
+				if rd.Error == "" {
+					rd.Error = err.Error()
+				}
+				continue
+			}
+			variant.SVG = content
+			rd.SwissVariants = append(rd.SwissVariants, variant)
 		}
 
 		if asciiContent, err := ascii.NewRenderer(th).Render(diagram); err != nil {
@@ -355,12 +378,19 @@ const commonStyle = `
     gap: 20px;
     align-items: start;
   }
+  .svg-variants {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin-bottom: 24px;
+  }
   .panel { min-width: 0; overflow: hidden; }
   .panel-label {
     font-size: 10px; color: #888888; text-transform: uppercase;
     letter-spacing: 1px; margin-bottom: 6px; border-bottom: 1px solid #CCCCCC; padding-bottom: 3px;
   }
-  .svg-wrap { border: 1px solid #000000; display: inline-block; max-width: 100%; overflow: hidden; }
+  .svg-wrap { display: inline-block; max-width: 100%; overflow: hidden; }
+  .svg-wrap.boxed { border: 1px solid #000000; }
   .svg-wrap svg { display: block; max-width: 100%; height: auto; }
   .ascii-wrap {
     border: 1px solid #CCCCCC; padding: 12px;
@@ -408,11 +438,20 @@ const diagramTemplate = `<!DOCTYPE html>
 
 {{if .RD.Error}}<div class="error">Error: {{.RD.Error}}</div>{{end}}
 
-<div class="panels">
+<div class="svg-variants">
   <div class="panel">
-    <div class="panel-label">SVG</div>
-    {{if .RD.SVG}}<div class="svg-wrap">{{.RD.SVG | safeHTML}}</div>{{end}}
+    <div class="panel-label">SVG / Boxed Macintosh</div>
+    {{if .RD.SVG}}<div class="svg-wrap boxed">{{.RD.SVG | safeHTML}}</div>{{end}}
   </div>
+  {{range .RD.SwissVariants}}
+  <div class="panel">
+    <div class="panel-label">{{.Label}}</div>
+    <div class="svg-wrap">{{.SVG | safeHTML}}</div>
+  </div>
+  {{end}}
+</div>
+
+<div class="panels">
   <div class="panel">
     <div class="panel-label">ASCII</div>
     {{if .RD.ASCII}}<div class="ascii-wrap">{{.RD.ASCII}}</div>{{end}}
@@ -420,6 +459,11 @@ const diagramTemplate = `<!DOCTYPE html>
   <div class="panel">
     <div class="panel-label">DSL</div>
     {{if .RD.YAML}}<div class="yaml-wrap">{{.RD.YAML}}</div>{{end}}
+  </div>
+  <div class="panel">
+    <div class="panel-label">Raw links</div>
+    <p style="font-size:12px"><a href="/svg/{{.RD.Name}}">boxed SVG</a></p>
+    <p style="font-size:12px"><a href="/yaml/{{.RD.Name}}">YAML source</a></p>
   </div>
 </div>
 

@@ -2,8 +2,6 @@ package svg
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/go-go-golems/context-window-render/pkg/cwr/dsl"
 	"github.com/go-go-golems/context-window-render/pkg/cwr/theme"
@@ -391,17 +389,3 @@ func (r *Renderer) regionStroke(reg dsl.Region, cs theme.ColorSet) string {
 	}
 	return cs.Border
 }
-
-// sortedNames is a helper for the serve command.
-func sortedNames(m map[string]struct{}) []string {
-	names := make([]string, 0, len(m))
-	for n := range m {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
-}
-
-// Suppress unused import
-var _ = fmt.Sprintf
-var _ = strings.ReplaceAll

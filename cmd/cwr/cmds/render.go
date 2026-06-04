@@ -6,7 +6,6 @@ import (
 
 	"github.com/go-go-golems/context-window-render/pkg/cwr/dsl"
 	"github.com/go-go-golems/context-window-render/pkg/cwr/renderer/ascii"
-	"github.com/go-go-golems/context-window-render/pkg/cwr/renderer/svg"
 	"github.com/go-go-golems/context-window-render/pkg/cwr/theme"
 	"github.com/go-go-golems/glazed/pkg/cmds"
 	"github.com/go-go-golems/glazed/pkg/cmds/fields"
@@ -25,7 +24,8 @@ type RenderCommand struct {
 type RenderSettings struct {
 	File   string `glazed:"file"`
 	Format string `glazed:"format"`
-	Out string `glazed:"out"`
+	Style  string `glazed:"style"`
+	Out    string `glazed:"out"`
 }
 
 func NewRenderCommand() (*RenderCommand, error) {
@@ -52,7 +52,8 @@ proportional regions. See the examples/ directory for YAML samples.
 Examples:
   cwr render --file examples/01-simple-window.yaml --format svg
   cwr render --file examples/03-rag-pipeline.yaml --format ascii
-  cwr render --file examples/04-multi-window-comparison.yaml --format svg --output diagram.svg
+  cwr render --file examples/04-multi-window-comparison.yaml --format svg --style swiss --out diagram.svg
+  cwr render --file examples/05-agentic-loop.yaml --format svg --style swiss-cool
 `),
 		cmds.WithFlags(
 			fields.New(
@@ -66,6 +67,12 @@ Examples:
 				fields.TypeString,
 				fields.WithDefault("svg"),
 				fields.WithHelp("Output format: svg, png, or ascii"),
+			),
+			fields.New(
+				"style",
+				fields.TypeString,
+				fields.WithDefault("boxed"),
+				fields.WithHelp("SVG style: boxed, swiss, swiss-cool, swiss-warm"),
 			),
 			fields.New(
 				"out",
@@ -100,8 +107,7 @@ func (c *RenderCommand) RunIntoGlazeProcessor(
 
 	switch settings.Format {
 	case "svg":
-		r := svg.NewRenderer(th)
-		result, err := r.Render(diagram)
+		result, err := renderSVG(diagram, th, settings.Style)
 		if err != nil {
 			return err
 		}
@@ -125,8 +131,7 @@ func (c *RenderCommand) RunIntoGlazeProcessor(
 
 	case "png":
 		// PNG is rendered via SVG → PNG conversion (requires rsvg-convert or similar)
-		r := svg.NewRenderer(th)
-		svgContent, err := r.Render(diagram)
+		svgContent, err := renderSVG(diagram, th, settings.Style)
 		if err != nil {
 			return err
 		}
